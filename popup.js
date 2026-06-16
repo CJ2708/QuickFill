@@ -8,20 +8,26 @@ function canInject(url) {
 
 // Editor field layout. Pairs render side-by-side.
 const FIELD_GROUPS = [
-  { title: "Personal", rows: [["firstName", "lastName"], ["middleName"], ["fullName"]] },
+  { title: "Personal", rows: [["firstName", "lastName"], ["middleName"], ["fullName"], ["dateOfBirth"]] },
   { title: "Contact", rows: [["email"], ["phone"]] },
   { title: "Address", rows: [["addressLine1"], ["addressLine2"], ["city", "state"], ["zip", "country"]] },
   { title: "Links", rows: [["linkedin"], ["github"], ["portfolio"]] },
-  { title: "Work", rows: [["currentCompany"], ["currentTitle"]] }
+  { title: "Work", rows: [["currentCompany"], ["currentTitle"]] },
+  { title: "Application", rows: [["summary"], ["coverLetter"]] }
 ];
 const FIELD_LABELS = {
   firstName: "First name", middleName: "Middle name (optional)", lastName: "Last name",
-  fullName: "Full name (auto if blank)", email: "Email", phone: "Phone",
+  fullName: "Full name (auto if blank)", dateOfBirth: "Date of birth", email: "Email", phone: "Phone",
   addressLine1: "Street address", addressLine2: "Apt / Suite (optional)",
   city: "City", state: "State / Province", zip: "ZIP / Postal code", country: "Country",
   linkedin: "LinkedIn URL", github: "GitHub URL", portfolio: "Website / Portfolio URL",
-  currentCompany: "Current company", currentTitle: "Current job title"
+  currentCompany: "Current company", currentTitle: "Current job title",
+  summary: "Professional summary / headline", coverLetter: "Cover letter / personal statement"
 };
+// Fields that render as a multi-line <textarea> instead of a single-line input.
+const TEXTAREA_FIELDS = new Set(["summary", "coverLetter"]);
+// Non-default input types for single-line fields.
+const FIELD_INPUT_TYPE = { email: "email", dateOfBirth: "date" };
 
 let state = null;
 const ui = { view: "fill", editingId: null, tab: null };
@@ -136,16 +142,19 @@ function renderEditor() {
   FIELD_GROUPS.forEach((g) => {
     box.append(el("div", { class: "group-title", text: g.title }));
     g.rows.forEach((row) => {
-      const inputs = row.map((key) =>
-        el("div", { class: "fld" },
-          el("label", { text: FIELD_LABELS[key] }),
-          el("input", {
-            type: key === "email" ? "email" : "text",
-            value: profile.fields[key] || "",
-            oninput: (e) => { profile.fields[key] = e.target.value; saveSoon(); }
-          })
-        )
-      );
+      const inputs = row.map((key) => {
+        const control = TEXTAREA_FIELDS.has(key)
+          ? el("textarea", {
+              rows: "4", value: profile.fields[key] || "",
+              oninput: (e) => { profile.fields[key] = e.target.value; saveSoon(); }
+            })
+          : el("input", {
+              type: FIELD_INPUT_TYPE[key] || "text",
+              value: profile.fields[key] || "",
+              oninput: (e) => { profile.fields[key] = e.target.value; saveSoon(); }
+            });
+        return el("div", { class: "fld" }, el("label", { text: FIELD_LABELS[key] }), control);
+      });
       box.append(row.length === 2 ? el("div", { class: "grid-2" }, ...inputs) : inputs[0]);
     });
   });
@@ -187,6 +196,51 @@ function addProfile() {
   renderProfiles();
 }
 
+// ================= import / export =================
+function ioStatus(msg, kind) {
+  const s = document.getElementById("io-status");
+  s.textContent = msg || "";
+  s.className = "status" + (kind ? " " + kind : "");
+}
+
+function exportProfiles() {
+  if (!state.profiles.length) { ioStatus("No profiles to export.", "muted"); return; }
+  const payload = { app: "QuickFill", version: 1, profiles: state.profiles };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: "quickfill-profiles.json" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  ioStatus("Exported " + state.profiles.length + " profile" + (state.profiles.length === 1 ? "" : "s") + ".", "ok");
+}
+
+function importProfilesFromText(text) {
+  let data;
+  try { data = JSON.parse(text); } catch (e) { ioStatus("That file isn't valid JSON.", "warn"); return; }
+  const incoming = Array.isArray(data) ? data : (data && Array.isArray(data.profiles) ? data.profiles : null);
+  if (!incoming) { ioStatus("No profiles found in that file.", "warn"); return; }
+
+  let added = 0;
+  incoming.forEach((raw) => {
+    if (!raw || typeof raw !== "object") return;
+    const clean = {
+      id: qfUid(), // always assign a fresh id so imports never collide with existing ones
+      label: (typeof raw.label === "string" && raw.label.trim()) ? raw.label.trim() : "Imported profile",
+      fields: Object.assign(qfEmptyFields(), (raw.fields && typeof raw.fields === "object") ? raw.fields : {})
+    };
+    state.profiles.push(clean);
+    added++;
+  });
+
+  if (!added) { ioStatus("No valid profiles to import.", "warn"); return; }
+  if (!state.activeId) state.activeId = state.profiles[0].id;
+  qfSetState(state);
+  renderProfiles();
+  ioStatus("Imported " + added + " profile" + (added === 1 ? "" : "s") + ".", "ok");
+}
+
 // ================= fill action =================
 async function doFill() {
   const profile = activeProfile();
@@ -226,6 +280,19 @@ async function init() {
   document.getElementById("tab-profiles").addEventListener("click", () => setTab("profiles"));
   document.getElementById("fill-btn").addEventListener("click", doFill);
   document.getElementById("add-profile").addEventListener("click", addProfile);
+
+  document.getElementById("export-btn").addEventListener("click", exportProfiles);
+  const importFile = document.getElementById("import-file");
+  document.getElementById("import-btn").addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => importProfilesFromText(String(reader.result || ""));
+    reader.onerror = () => ioStatus("Couldn't read that file.", "warn");
+    reader.readAsText(file);
+    e.target.value = ""; // allow re-importing the same file
+  });
 
   document.getElementById("active-select").addEventListener("change", (e) => {
     state.activeId = e.target.value;

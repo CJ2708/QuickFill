@@ -45,6 +45,13 @@
       <div id="profile-list" class="profile-list"></div>
       <button id="add-profile" class="btn btn-ghost">+ Add profile</button>
 
+      <div class="io-row">
+        <button id="export-btn" class="btn btn-ghost btn-sm">Export</button>
+        <button id="import-btn" class="btn btn-ghost btn-sm">Import</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden />
+      </div>
+      <p id="io-status" class="status" role="status"></p>
+
       <div id="editor" class="editor hidden"></div>
     </section>
   </main>

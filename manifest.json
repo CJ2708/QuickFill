@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "QuickFill — Profile Autofill",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Save multiple personal profiles and autofill forms (job portals, signups, etc.) with one click.",
   "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["<all_urls>"],

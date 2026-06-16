@@ -32,6 +32,12 @@ HOW TO USE
 Tip: "Only fill fields that are empty" leaves anything you've already typed
 untouched.
 
+BACKUP & TRANSFER
+-----------------
+On the "Profiles" tab, use "Export" to save all your profiles to a JSON file,
+and "Import" to load them back (e.g. on another computer or after reinstalling).
+Imported profiles are added alongside any existing ones.
+
 
 GOOD TO KNOW
 ------------

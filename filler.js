@@ -15,9 +15,12 @@ function fillPage(profile, opts) {
     p.fullName = [p.firstName, p.middleName, p.lastName].filter(Boolean).join(" ");
   }
   if (p.fullName) {
-    const parts = p.fullName.split(/\s+/);
+    const parts = p.fullName.split(/\s+/).filter(Boolean);
     if (!p.firstName) p.firstName = parts[0] || "";
-    if (!p.lastName && parts.length > 1) p.lastName = parts.slice(1).join(" ");
+    if (parts.length > 1) {
+      if (!p.lastName) p.lastName = parts[parts.length - 1];
+      if (!p.middleName && parts.length > 2) p.middleName = parts.slice(1, -1).join(" ");
+    }
   }
 
   const valueFor = (key) => p[key] || "";
@@ -40,6 +43,7 @@ function fillPage(profile, opts) {
     "postal-code": "zip",
     country: "country",
     "country-name": "country",
+    bday: "dateOfBirth",
     organization: "currentCompany",
     "organization-title": "currentTitle",
     url: "portfolio"
@@ -49,6 +53,7 @@ function fillPage(profile, opts) {
   // [key, matchRegex, negativeRegex?]
   const rules = [
     ["email", /e[\s\-_]?mail/i],
+    ["dateOfBirth", /\b(date[\s\-_]?of[\s\-_]?birth|birth[\s\-_]?date|d\.?o\.?b\.?|birthday)\b/i],
     ["firstName", /(first|given|fore)[\s\-_]?name|fname|^first$/i],
     ["middleName", /middle[\s\-_]?name|mname/i],
     ["lastName", /(last|family|sur)[\s\-_]?name|lname|surname|^last$/i],
@@ -69,6 +74,9 @@ function fillPage(profile, opts) {
     ["country", /\bcountry\b|nationalit/i],
     ["currentTitle", /job[\s\-_]?title|current[\s\-_]?(job|title|role)|designation|\bposition\b|\btitle\b|\brole\b/i],
     ["currentCompany", /\bcompany\b|\bemployer\b|organi[sz]ation|\bfirm\b|workplace/i],
+    ["coverLetter", /cover[\s\-_]?letter|personal[\s\-_]?statement|motivation[\s\-_]?(letter|statement)|statement[\s\-_]?of[\s\-_]?purpose/i],
+    ["summary", /professional[\s\-_]?summary|career[\s\-_]?summary|profile[\s\-_]?summary|\bheadline\b|about[\s\-_]?(you|me|yourself)/i,
+      /search|company|employer|project|product|order|payment|ticket|issue|review|comment|feedback/i],
     [
       "fullName",
       /full[\s\-_]?name|legal[\s\-_]?name|your[\s\-_]?name|applicant[\s\-_]?name|candidate[\s\-_]?name|^name$|\bname\b/i,
@@ -163,22 +171,49 @@ function fillPage(profile, opts) {
   function setSelectValue(el, value) {
     if (!value) return false;
     const v = value.toLowerCase().trim();
-    let matched = null;
-    for (const opt of el.options) {
-      if (opt.value.toLowerCase().trim() === v || opt.text.toLowerCase().trim() === v) { matched = opt; break; }
-    }
+    if (!v) return false;
+    const opts = Array.from(el.options);
+    const norm = (s) => String(s == null ? "" : s).toLowerCase().trim();
+
+    // 1. exact match on the option's value or visible text
+    let matched = opts.find((o) => norm(o.value) === v || norm(o.text) === v);
+
+    // 2. one is a prefix of the other (e.g. "United States" vs "United States of America")
+    if (!matched) matched = opts.find((o) => {
+      const t = norm(o.text);
+      if (t.length < 2) return false;
+      return t.startsWith(v) || (t.length >= 3 && v.startsWith(t));
+    });
+
+    // 3. whole-word match — avoids "India" matching "British Indian Ocean Territory"
     if (!matched) {
-      for (const opt of el.options) {
-        const ot = opt.text.toLowerCase().trim();
-        if (ot.length < 2) continue;
-        if (ot.includes(v) || v.includes(ot)) { matched = opt; break; }
-      }
+      let re = null;
+      try { re = new RegExp("\\b" + v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b"); } catch (e) {}
+      if (re) matched = opts.find((o) => norm(o.text).length >= 2 && re.test(norm(o.text)));
     }
+
     if (!matched) return false;
     el.value = matched.value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
+  }
+
+  // ---------- coerce a date string to the YYYY-MM-DD an <input type=date> needs ----------
+  function toISODate(s) {
+    s = String(s || "").trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const pad = (n) => String(n).padStart(2, "0");
+    let m = s.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})$/); // YYYY/MM/DD
+    if (m) return m[1] + "-" + pad(m[2]) + "-" + pad(m[3]);
+    m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/); // DD/MM/YYYY or MM/DD/YYYY
+    if (m) {
+      let a = +m[1], b = +m[2]; // assume MM/DD; flip if first part can't be a month
+      if (a > 12 && b <= 12) { const t = a; a = b; b = t; }
+      return m[3] + "-" + pad(a) + "-" + pad(b);
+    }
+    return null;
   }
 
   // ---------- collect fields, including open shadow DOM ----------
@@ -216,6 +251,16 @@ function fillPage(profile, opts) {
 
       const current = (el.value || "").trim();
       if (onlyEmpty && current) continue;
+
+      // date inputs only accept YYYY-MM-DD; skip rather than write a rejected value
+      if (type === "date") {
+        const iso = toISODate(value);
+        if (!iso || current === iso) continue;
+        setInputValue(el, iso);
+        filled++;
+        continue;
+      }
+
       if (current === value) continue;
       setInputValue(el, value);
       filled++;

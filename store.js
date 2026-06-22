@@ -27,11 +27,14 @@ function qfEmptyFields() {
     state: "",
     zip: "",
     country: "",
+    dateOfBirth: "",
     linkedin: "",
     github: "",
     portfolio: "",
     currentCompany: "",
-    currentTitle: ""
+    currentTitle: "",
+    summary: "",
+    coverLetter: ""
   };
 }
 
